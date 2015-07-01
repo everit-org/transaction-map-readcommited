@@ -39,8 +39,6 @@ public class ReadCommitedTransactionalMap<K, V> implements TransactionalMap<K, V
 
   protected ThreadLocal<MapTxContext<K, V>> activeTx = new ThreadLocal<>();
 
-  protected final boolean allRemoveOperationReplayedOnCommit;
-
   protected final Map<Object, MapTxContext<K, V>> suspendedTXContexts = new ConcurrentHashMap<>();
 
   protected final RWLockedMap<K, V> wrapped;
@@ -50,12 +48,8 @@ public class ReadCommitedTransactionalMap<K, V> implements TransactionalMap<K, V
    *
    * @param wrapped
    *          The Map that should is managed by this class.
-   * @param allRemoveOperationReplayedOnCommit
-   *          See {@link #isAllRemoveOperationReplayedOnCommit()}.
    */
-  public ReadCommitedTransactionalMap(final Map<K, V> wrapped,
-      final boolean allRemoveOperationReplayedOnCommit) {
-    this.allRemoveOperationReplayedOnCommit = allRemoveOperationReplayedOnCommit;
+  public ReadCommitedTransactionalMap(final Map<K, V> wrapped) {
     if (wrapped != null) {
       this.wrapped = new RWLockedMap<>(wrapped);
     } else {
@@ -75,7 +69,11 @@ public class ReadCommitedTransactionalMap<K, V> implements TransactionalMap<K, V
 
   @Override
   public void commitTransaction() {
-    getActiveTx().commit();
+    MapTxContext<K, V> mapTXContext = getActiveTx();
+    if (mapTXContext == null) {
+      throw new IllegalStateException("There is no active transaction to commit");
+    }
+    mapTXContext.commit();
     setActiveTx(null);
   }
 
@@ -90,7 +88,7 @@ public class ReadCommitedTransactionalMap<K, V> implements TransactionalMap<K, V
   }
 
   protected MapTxContext<K, V> createMapTxContext(final Object transaction) {
-    return new MapTxContext<K, V>(wrapped, transaction, allRemoveOperationReplayedOnCommit);
+    return new MapTxContext<K, V>(wrapped, transaction);
   }
 
   @Override
@@ -109,12 +107,11 @@ public class ReadCommitedTransactionalMap<K, V> implements TransactionalMap<K, V
 
   @Override
   public Object getAssociatedTransaction() {
-    return getActiveTx().getTransaction();
-  }
-
-  @Override
-  public boolean isAllRemoveOperationReplayedOnCommit() {
-    return allRemoveOperationReplayedOnCommit;
+    MapTxContext<K, V> txContext = getActiveTx();
+    if (txContext == null) {
+      return null;
+    }
+    return txContext.getTransaction();
   }
 
   @Override
@@ -142,23 +139,25 @@ public class ReadCommitedTransactionalMap<K, V> implements TransactionalMap<K, V
     return coalesceActiveTxOrWrapped().remove(key);
   }
 
-  /**
-   * Resumes a transaction that was previously suspended.
-   *
-   * @param transaction
-   *          The transaction to resume.
-   * @throws NullPointerException
-   *           if there is no suspended transaction registered.
-   */
   @Override
   public void resumeTransaction(final Object transaction) {
+    Objects.requireNonNull(transaction);
+    if (getActiveTx() != null) {
+      throw new IllegalStateException(
+          "Cannot resume transaction when there is another active associated transaction");
+    }
     MapTxContext<K, V> txContext = suspendedTXContexts.remove(transaction);
-    Objects.requireNonNull(txContext);
+    if (txContext == null) {
+      throw new IllegalStateException("There is no such suspended associated transaction");
+    }
     setActiveTx(txContext);
   }
 
   @Override
   public void rollbackTransaction() {
+    if (getActiveTx() == null) {
+      throw new IllegalStateException("No active associated transaction to rollback.");
+    }
     setActiveTx(null);
   }
 
@@ -173,6 +172,14 @@ public class ReadCommitedTransactionalMap<K, V> implements TransactionalMap<K, V
 
   @Override
   public void startTransaction(final Object transaction) {
+    if (getActiveTx() != null) {
+      throw new IllegalStateException(
+          "Cannot start new transaction when there is an associated active transaction");
+    }
+    if (suspendedTXContexts.containsKey(transaction)) {
+      throw new IllegalStateException(
+          "Transaction is already associated to Map in suspended state");
+    }
     setActiveTx(createMapTxContext(transaction));
   }
 
@@ -183,7 +190,9 @@ public class ReadCommitedTransactionalMap<K, V> implements TransactionalMap<K, V
   @Override
   public void suspendTransaction() {
     MapTxContext<K, V> activeTx = getActiveTx();
-    Objects.requireNonNull(activeTx, "No active map context for transaction.");
+    if (activeTx == null) {
+      throw new IllegalStateException("There is no active associated transaction to suspend");
+    }
     suspendedTXContexts.put(activeTx.getTransaction(), activeTx);
     setActiveTx(null);
   }

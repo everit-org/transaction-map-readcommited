@@ -17,6 +17,7 @@ package org.everit.transaction.map.readcommited.internal;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -34,15 +35,13 @@ import java.util.concurrent.locks.Lock;
  */
 public class MapTxContext<K, V> implements Map<K, V> {
 
-  private final boolean allRemoveOperationReplayedOnCommit;
-
   protected boolean cleared;
-
-  protected Set<K> deletes;
 
   protected Map<K, V> puts;
 
   protected boolean readOnly = true;
+
+  protected Set<K> removes;
 
   protected final RWLockedMap<K, V> rwLockedMap;
 
@@ -51,12 +50,10 @@ public class MapTxContext<K, V> implements Map<K, V> {
   /**
    * Constructor.
    */
-  public MapTxContext(final RWLockedMap<K, V> rwLockedMap,
-      final Object transaction, final boolean allRemoveOperationReplayedOnCommit) {
+  public MapTxContext(final RWLockedMap<K, V> rwLockedMap, final Object transaction) {
     this.rwLockedMap = rwLockedMap;
     this.transaction = transaction;
-    this.allRemoveOperationReplayedOnCommit = allRemoveOperationReplayedOnCommit;
-    deletes = new HashSet<K>();
+    removes = new HashSet<K>();
     puts = new HashMap<K, V>();
     cleared = false;
   }
@@ -65,7 +62,7 @@ public class MapTxContext<K, V> implements Map<K, V> {
   public void clear() {
     readOnly = false;
     cleared = true;
-    deletes.clear();
+    removes.clear();
     puts.clear();
   }
 
@@ -83,7 +80,7 @@ public class MapTxContext<K, V> implements Map<K, V> {
       if (cleared) {
         rwLockedMap.clear();
       } else {
-        for (Object key : deletes) {
+        for (Object key : removes) {
           rwLockedMap.remove(key);
         }
       }
@@ -97,7 +94,7 @@ public class MapTxContext<K, V> implements Map<K, V> {
 
   @Override
   public boolean containsKey(final Object key) {
-    if (deletes.contains(key)) {
+    if (removes.contains(key)) {
       // reflects that entry has been deleted in this tx
       return false;
     }
@@ -132,13 +129,13 @@ public class MapTxContext<K, V> implements Map<K, V> {
         entrySet.add(new HashEntry<>(key, value));
       }
     }
-    return entrySet;
+    return Collections.unmodifiableSet(entrySet);
   }
 
   @Override
   public V get(final Object key) {
 
-    if (deletes.contains(key)) {
+    if (removes.contains(key)) {
       // reflects that entry has been deleted in this tx
       return null;
     }
@@ -173,10 +170,10 @@ public class MapTxContext<K, V> implements Map<K, V> {
     Set<K> keySet = new HashSet<K>();
     if (!cleared) {
       keySet.addAll(rwLockedMap.keySet());
-      keySet.removeAll(deletes);
+      keySet.removeAll(removes);
     }
     keySet.addAll(puts.keySet());
-    return keySet;
+    return Collections.unmodifiableSet(keySet);
   }
 
   @Override
@@ -184,10 +181,6 @@ public class MapTxContext<K, V> implements Map<K, V> {
     readOnly = false;
 
     V oldValue = get(key);
-
-    if (!allRemoveOperationReplayedOnCommit) {
-      deletes.remove(key);
-    }
 
     puts.put(key, value);
 
@@ -212,7 +205,7 @@ public class MapTxContext<K, V> implements Map<K, V> {
     if (!cleared) {
       @SuppressWarnings("unchecked")
       K typedKey = (K) key;
-      deletes.add(typedKey);
+      removes.add(typedKey);
     }
 
     return oldValue;
@@ -220,12 +213,7 @@ public class MapTxContext<K, V> implements Map<K, V> {
 
   @Override
   public int size() {
-    int size = (cleared ? 0 : rwLockedMap.size());
-
-    size -= deletes.size();
-    size += puts.size();
-
-    return size;
+    return keySet().size();
   }
 
   @Override
@@ -242,7 +230,7 @@ public class MapTxContext<K, V> implements Map<K, V> {
         values.add(value);
       }
     }
-    return values;
+    return Collections.unmodifiableCollection(values);
   }
 
 }

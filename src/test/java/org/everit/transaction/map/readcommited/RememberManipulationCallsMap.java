@@ -15,15 +15,16 @@
  */
 package org.everit.transaction.map.readcommited;
 
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.Map;
 import java.util.Set;
 
-public class RememberCallsMap<K, V> implements Map<K, V> {
+public class RememberManipulationCallsMap<K, V> implements Map<K, V> {
 
-  private static class CallInfo {
+  public static class CallInfo {
 
     public final String methodName;
 
@@ -33,6 +34,13 @@ public class RememberCallsMap<K, V> implements Map<K, V> {
       this.methodName = methodName;
       this.parameters = parameters;
     }
+
+    @Override
+    public String toString() {
+      return "CallInfo [methodName=" + methodName + ", parameters=" + Arrays.toString(parameters)
+          + "]";
+    }
+
   }
 
   private final LinkedList<CallInfo> calls = new LinkedList<>();
@@ -75,6 +83,14 @@ public class RememberCallsMap<K, V> implements Map<K, V> {
     return wrapped.keySet();
   }
 
+  public CallInfo peekCall() {
+    if (calls.size() == 0) {
+      return null;
+    } else {
+      return calls.removeFirst();
+    }
+  }
+
   @Override
   public V put(final K key, final V value) {
     calls.addLast(new CallInfo("put", key, value));
@@ -83,8 +99,12 @@ public class RememberCallsMap<K, V> implements Map<K, V> {
 
   @Override
   public void putAll(final Map<? extends K, ? extends V> m) {
-    calls.addLast(new CallInfo("putAll", m));
-    wrapped.putAll(m);
+    Set<?> entrySet = m.entrySet();
+    for (Object entryObject : entrySet) {
+      @SuppressWarnings("unchecked")
+      Entry<K, V> entry = (Entry<K, V>) entryObject;
+      put(entry.getKey(), entry.getValue());
+    }
   }
 
   @Override
