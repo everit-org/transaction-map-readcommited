@@ -271,6 +271,21 @@ public class ReadCommitedTransactionalMapTest {
   }
 
   @Test
+  public void testRemoveAndPutWithinTransaction() {
+    ReadCommitedTransactionalMap<String, String> transactionalMap =
+        new ReadCommitedTransactionalMap<>(null);
+
+    transactionalMap.startTransaction(0);
+    transactionalMap.remove("key");
+    transactionalMap.put("key", "value");
+    Assert.assertEquals("value", transactionalMap.get("key"));
+    Assert.assertEquals(1, transactionalMap.size());
+    transactionalMap.commitTransaction();
+    Assert.assertEquals("value", transactionalMap.get("key"));
+    Assert.assertEquals(1, transactionalMap.size());
+  }
+
+  @Test
   public void testRollback() {
     RememberManipulationCallsMap<String, String> wrapped = new RememberManipulationCallsMap<>();
     ReadCommitedTransactionalMap<String, String> transactionalMap =

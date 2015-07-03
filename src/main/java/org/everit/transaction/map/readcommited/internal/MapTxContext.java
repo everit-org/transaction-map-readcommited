@@ -94,11 +94,6 @@ public class MapTxContext<K, V> implements Map<K, V> {
 
   @Override
   public boolean containsKey(final Object key) {
-    if (removes.contains(key)) {
-      // reflects that entry has been deleted in this tx
-      return false;
-    }
-
     if (puts.containsKey(key)) {
       return true;
     }
@@ -106,6 +101,10 @@ public class MapTxContext<K, V> implements Map<K, V> {
     if (cleared) {
       return false;
     } else {
+      if (removes.contains(key)) {
+        // reflects that entry has been deleted in this tx
+        return false;
+      }
       // not modified in this tx
       return rwLockedMap.containsKey(key);
     }
@@ -135,11 +134,6 @@ public class MapTxContext<K, V> implements Map<K, V> {
   @Override
   public V get(final Object key) {
 
-    if (removes.contains(key)) {
-      // reflects that entry has been deleted in this tx
-      return null;
-    }
-
     if (puts.containsKey(key)) {
       return puts.get(key);
     }
@@ -147,6 +141,10 @@ public class MapTxContext<K, V> implements Map<K, V> {
     if (cleared) {
       return null;
     } else {
+      if (removes.contains(key)) {
+        // reflects that entry has been deleted in this tx
+        return null;
+      }
       // not modified in this tx
       return rwLockedMap.get(key);
     }
